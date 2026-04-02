@@ -1,0 +1,66 @@
+/* AI Check button — LinkedIn-native look */
+
+.ai-check-btn__wrapper {
+  display: inline-flex;
+  align-items: center;
+}
+
+.ai-check-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+  font-family: -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", "Fira Sans", Ubuntu, Oxygen, "Oxygen Sans", Cantarell,
+    "Droid Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol",
+    "Lucida Grande", Helvetica, Arial, sans-serif;
+}
+
+.ai-check-btn:hover {
+  background-color: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.9);
+}
+
+.ai-check-btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.ai-check-btn__icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ai-check-btn__label {
+  white-space: nowrap;
+}
+
+/* Score color states */
+.ai-check-btn--high .ai-check-btn__label {
+  color: #d32f2f;
+}
+
+.ai-check-btn--medium .ai-check-btn__label {
+  color: #f57c00;
+}
+
+.ai-check-btn--low .ai-check-btn__label {
+  color: #388e3c;
+}
+
+.ai-check-btn--error .ai-check-btn__label {
+  color: #d32f2f;
+}
+
+.ai-check-btn--done {
+  pointer-events: none;
+}
