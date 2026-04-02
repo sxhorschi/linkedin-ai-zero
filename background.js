@@ -24,7 +24,9 @@ async function generatePKCE() {
   return { verifier, challenge };
 }
 
-// --- OAuth flow via chrome.tabs ---
+// --- OAuth flow ---
+// Opens Claude auth page in a tab. A content script (oauth-callback.js)
+// runs on the callback page, extracts the code, and sends it back here.
 
 let pendingLogin = null;
 
@@ -46,7 +48,6 @@ async function startLogin() {
   const authUrl = `${AUTH_URL}?${params.toString()}`;
 
   return new Promise((resolve, reject) => {
-    // Store the pending login so the tab listener can resolve it
     pendingLogin = { resolve, reject };
 
     chrome.tabs.create({ url: authUrl }, (tab) => {
@@ -60,54 +61,27 @@ async function startLogin() {
   });
 }
 
-// Watch for the OAuth callback redirect
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (!pendingLogin || tabId !== pendingLogin.tabId) return;
-  if (!changeInfo.url) return;
-
-  const url = changeInfo.url;
-  if (!url.startsWith(REDIRECT_URI)) return;
-
-  // Got the callback — extract code and close tab
-  chrome.tabs.remove(tabId);
-
-  const parsed = new URL(url);
-  let code = parsed.searchParams.get("code");
-
-  if (!code) {
-    // Check hash fragment: code#state format
-    const hash = parsed.hash.substring(1);
-    if (hash && !hash.includes("=")) {
-      code = hash.split("#")[0];
-    } else {
-      const hashParams = new URLSearchParams(hash);
-      code = hashParams.get("code");
-    }
-  }
-
-  if (!code) {
-    pendingLogin.reject(new Error("No authorization code received"));
-    pendingLogin = null;
-    return;
-  }
-
-  // Strip #state suffix if present
-  if (code.includes("#")) code = code.split("#")[0];
-
+// Handle code sent from oauth-callback.js content script
+async function handleOAuthCallback(code, sendResponse) {
   const login = pendingLogin;
   pendingLogin = null;
 
-  (async () => {
-    try {
-      const { _pkce_verifier: verifier } = await chrome.storage.local.get("_pkce_verifier");
-      if (!verifier) throw new Error("PKCE verifier not found");
-      const result = await exchangeCode(code, verifier);
-      login.resolve(result);
-    } catch (err) {
-      login.reject(err);
-    }
-  })();
-});
+  // Close the auth tab
+  if (login?.tabId) {
+    chrome.tabs.remove(login.tabId).catch(() => {});
+  }
+
+  try {
+    const { _pkce_verifier: verifier } = await chrome.storage.local.get("_pkce_verifier");
+    if (!verifier) throw new Error("PKCE verifier not found");
+    const result = await exchangeCode(code, verifier);
+    sendResponse({ success: true });
+    if (login) login.resolve(result);
+  } catch (err) {
+    sendResponse({ error: err.message });
+    if (login) login.reject(err);
+  }
+}
 
 // If user closes the auth tab manually, reject the login
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -332,6 +306,12 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  // OAuth callback from content script on the Anthropic callback page
+  if (msg.type === "oauthCallback") {
+    handleOAuthCallback(msg.code, sendResponse);
+    return true;
+  }
+
   if (msg.type === "login") {
     startLogin()
       .then((result) => sendResponse(result))

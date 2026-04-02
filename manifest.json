@@ -18,6 +18,11 @@
       "js": ["content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://console.anthropic.com/oauth/code/callback*"],
+      "js": ["oauth-callback.js"],
+      "run_at": "document_start"
     }
   ],
   "action": {
