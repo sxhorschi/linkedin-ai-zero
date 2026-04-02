@@ -21,6 +21,7 @@
       border: 1px solid #e0dfdc;
       overflow: hidden;
     }
+    .card + .card { margin-top: 0; }
 
     /* Header bar */
     .header {
@@ -88,6 +89,19 @@
       color: rgba(0, 0, 0, 0.9);
     }
 
+    /* Small text button */
+    .btn-text {
+      background: none;
+      border: none;
+      color: rgba(0, 0, 0, 0.6);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 4px 0;
+    }
+    .btn-text:hover { color: #0a66c2; }
+    .btn-text:disabled { opacity: 0.5; cursor: wait; }
+
     /* Status badge */
     .status {
       margin-top: 12px;
@@ -97,9 +111,7 @@
       font-weight: 600;
       text-align: center;
     }
-    .status:empty {
-      display: none;
-    }
+    .status:empty { display: none; }
     .status--ok {
       background: #e8f5e9;
       color: #1b5e20;
@@ -113,11 +125,66 @@
       color: #0a66c2;
     }
 
+    /* Update banner */
+    .update-banner {
+      padding: 12px 16px;
+      background: #e3f2fd;
+      border-bottom: 1px solid #e0dfdc;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .update-banner__text {
+      font-size: 13px;
+      font-weight: 600;
+      color: #0a66c2;
+    }
+    .update-banner__version {
+      font-weight: 400;
+      color: rgba(0, 0, 0, 0.6);
+    }
+    .btn-update {
+      padding: 6px 16px;
+      background: #0a66c2;
+      color: #fff;
+      border: none;
+      border-radius: 16px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .btn-update:hover { background: #004182; }
+
+    /* Footer */
+    .footer {
+      padding: 8px 16px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-top: 1px solid #e0dfdc;
+    }
+    .footer__version {
+      font-size: 11px;
+      color: rgba(0, 0, 0, 0.4);
+    }
+
     .hidden { display: none; }
   </style>
 </head>
 <body>
   <div class="card">
+    <!-- Update available banner -->
+    <div class="update-banner hidden" id="update-banner">
+      <div>
+        <div class="update-banner__text">Update available</div>
+        <div class="update-banner__version" id="update-version"></div>
+      </div>
+      <button class="btn-update" id="update-download">Download</button>
+    </div>
+
     <div class="header">
       <div class="header__title">AI Content Detector</div>
       <div class="header__subtitle">Powered by Claude</div>
@@ -137,6 +204,11 @@
       </div>
 
       <div class="status" id="status"></div>
+    </div>
+
+    <div class="footer">
+      <span class="footer__version" id="current-version"></span>
+      <button class="btn-text" id="check-update">Check for updates</button>
     </div>
   </div>
 

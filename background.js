@@ -229,30 +229,57 @@ async function logout() {
   chrome.alarms.clear("oauth_refresh");
 }
 
-// --- Dev auto-reload ---
+// --- Update checker ---
 
-const DEV_SERVER = "http://localhost:35729";
-let lastKnownChange = 0;
+const REPO = "sxhorschi/linkedin-ai-zero";
+const RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 
-async function checkDevReload() {
+async function checkForUpdate() {
   try {
-    const res = await fetch(DEV_SERVER);
-    const { changed } = await res.json();
-    if (lastKnownChange === 0) {
-      // First check — just record the timestamp
-      lastKnownChange = changed;
-    } else if (changed > lastKnownChange) {
-      console.log("[AI Detector] File change detected, reloading…");
-      chrome.runtime.reload();
+    const res = await fetch(RELEASE_API, {
+      headers: { Accept: "application/vnd.github.v3+json" },
+    });
+    if (!res.ok) return { available: false };
+
+    const release = await res.json();
+    const remoteVersion = release.tag_name.replace(/^v/, "");
+    const localVersion = chrome.runtime.getManifest().version;
+
+    if (compareVersions(remoteVersion, localVersion) > 0) {
+      const zipAsset = release.assets.find((a) => a.name.endsWith(".zip"));
+      const result = {
+        available: true,
+        version: remoteVersion,
+        current: localVersion,
+        notes: release.body || "",
+        downloadUrl: zipAsset
+          ? zipAsset.browser_download_url
+          : release.html_url,
+        releaseUrl: release.html_url,
+      };
+      await chrome.storage.local.set({ _update: result });
+      return result;
     }
-  } catch {
-    // Dev server not running — silently ignore
+
+    await chrome.storage.local.remove("_update");
+    return { available: false, current: localVersion };
+  } catch (err) {
+    console.error("[AI Detector] Update check failed:", err);
+    return { available: false, error: err.message };
   }
 }
 
-// Poll every 1.5s (only costs a fetch if dev server is running)
-setInterval(checkDevReload, 1500);
-checkDevReload();
+function compareVersions(a, b) {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
 
 // --- Listeners ---
 
@@ -264,12 +291,20 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
+// Check for updates on browser startup + schedule token refresh
 chrome.runtime.onStartup.addListener(async () => {
+  checkForUpdate();
+
   const { oauth_expires_at } = await chrome.storage.local.get("oauth_expires_at");
   if (oauth_expires_at) {
     const remaining = Math.max((oauth_expires_at - Date.now()) / 1000 - 300, 60);
     scheduleRefresh(remaining);
   }
+});
+
+// Also check on extension install/update
+chrome.runtime.onInstalled.addListener(() => {
+  checkForUpdate();
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
@@ -298,6 +333,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     getAccessToken()
       .then((token) => sendResponse({ loggedIn: !!token }))
       .catch(() => sendResponse({ loggedIn: false }));
+    return true;
+  }
+
+  if (msg.type === "checkUpdate") {
+    checkForUpdate()
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ available: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === "getCachedUpdate") {
+    chrome.storage.local.get("_update", ({ _update }) => {
+      sendResponse(_update || { available: false });
+    });
     return true;
   }
 });

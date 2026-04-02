@@ -3,6 +3,17 @@ const logoutBtn = document.getElementById("logout");
 const loggedOutEl = document.getElementById("logged-out");
 const loggedInEl = document.getElementById("logged-in");
 const statusEl = document.getElementById("status");
+const updateBanner = document.getElementById("update-banner");
+const updateVersion = document.getElementById("update-version");
+const updateDownload = document.getElementById("update-download");
+const checkUpdateBtn = document.getElementById("check-update");
+const currentVersionEl = document.getElementById("current-version");
+
+// Show current version
+const manifest = chrome.runtime.getManifest();
+currentVersionEl.textContent = `v${manifest.version}`;
+
+// --- Auth UI ---
 
 function setStatus(text, type) {
   statusEl.textContent = text;
@@ -21,7 +32,6 @@ function showLoggedOut() {
   setStatus("", "");
 }
 
-// Check current auth status
 chrome.runtime.sendMessage({ type: "getAuthStatus" }, (res) => {
   if (res?.loggedIn) showLoggedIn();
   else showLoggedOut();
@@ -44,5 +54,43 @@ loginBtn.addEventListener("click", () => {
 logoutBtn.addEventListener("click", () => {
   chrome.runtime.sendMessage({ type: "logout" }, () => {
     showLoggedOut();
+  });
+});
+
+// --- Update UI ---
+
+function showUpdateBanner(update) {
+  if (!update?.available) {
+    updateBanner.classList.add("hidden");
+    return;
+  }
+  updateVersion.textContent = `v${manifest.version} → v${update.version}`;
+  updateDownload.onclick = () => chrome.tabs.create({ url: update.downloadUrl });
+  updateBanner.classList.remove("hidden");
+}
+
+// Load cached update state on popup open
+chrome.runtime.sendMessage({ type: "getCachedUpdate" }, (res) => {
+  showUpdateBanner(res);
+});
+
+// Manual check button
+checkUpdateBtn.addEventListener("click", () => {
+  checkUpdateBtn.disabled = true;
+  checkUpdateBtn.textContent = "Checking…";
+
+  chrome.runtime.sendMessage({ type: "checkUpdate" }, (res) => {
+    checkUpdateBtn.disabled = false;
+
+    if (res?.available) {
+      checkUpdateBtn.textContent = "Update found!";
+      showUpdateBanner(res);
+    } else if (res?.error) {
+      checkUpdateBtn.textContent = "Check failed";
+      setTimeout(() => { checkUpdateBtn.textContent = "Check for updates"; }, 2000);
+    } else {
+      checkUpdateBtn.textContent = "Up to date";
+      setTimeout(() => { checkUpdateBtn.textContent = "Check for updates"; }, 2000);
+    }
   });
 });
