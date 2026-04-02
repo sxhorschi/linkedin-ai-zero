@@ -229,6 +229,31 @@ async function logout() {
   chrome.alarms.clear("oauth_refresh");
 }
 
+// --- Dev auto-reload ---
+
+const DEV_SERVER = "http://localhost:35729";
+let lastKnownChange = 0;
+
+async function checkDevReload() {
+  try {
+    const res = await fetch(DEV_SERVER);
+    const { changed } = await res.json();
+    if (lastKnownChange === 0) {
+      // First check — just record the timestamp
+      lastKnownChange = changed;
+    } else if (changed > lastKnownChange) {
+      console.log("[AI Detector] File change detected, reloading…");
+      chrome.runtime.reload();
+    }
+  } catch {
+    // Dev server not running — silently ignore
+  }
+}
+
+// Poll every 1.5s (only costs a fetch if dev server is running)
+setInterval(checkDevReload, 1500);
+checkDevReload();
+
 // --- Listeners ---
 
 chrome.alarms.onAlarm.addListener((alarm) => {
