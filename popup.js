@@ -5,7 +5,7 @@ const loggedInEl = document.getElementById("logged-in");
 const statusEl = document.getElementById("status");
 const updateBanner = document.getElementById("update-banner");
 const updateVersion = document.getElementById("update-version");
-const updateDownload = document.getElementById("update-download");
+const updateApplyBtn = document.getElementById("update-apply");
 const checkUpdateBtn = document.getElementById("check-update");
 const currentVersionEl = document.getElementById("current-version");
 
@@ -65,13 +65,18 @@ function showUpdateBanner(update) {
     return;
   }
   updateVersion.textContent = `v${manifest.version} → v${update.version}`;
-  updateDownload.onclick = () => chrome.tabs.create({ url: update.downloadUrl });
   updateBanner.classList.remove("hidden");
 }
 
 // Load cached update state on popup open
 chrome.runtime.sendMessage({ type: "getCachedUpdate" }, (res) => {
   showUpdateBanner(res);
+});
+
+// Update button opens the update page
+updateApplyBtn.addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("update.html") });
+  window.close();
 });
 
 // Manual check button

@@ -229,33 +229,34 @@ async function logout() {
   chrome.alarms.clear("oauth_refresh");
 }
 
-// --- Update checker ---
+// --- Update checker (fetches manifest.json from GitHub main branch) ---
 
-const REPO = "sxhorschi/linkedin-ai-zero";
-const RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
+const REPO_OWNER = "sxhorschi";
+const REPO_NAME = "linkedin-ai-zero";
+const REMOTE_MANIFEST = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/manifest.json`;
+const UPDATE_FILES = [
+  "manifest.json",
+  "background.js",
+  "content.js",
+  "styles.css",
+  "popup.html",
+  "popup.js",
+];
 
 async function checkForUpdate() {
   try {
-    const res = await fetch(RELEASE_API, {
-      headers: { Accept: "application/vnd.github.v3+json" },
-    });
+    const res = await fetch(REMOTE_MANIFEST, { cache: "no-store" });
     if (!res.ok) return { available: false };
 
-    const release = await res.json();
-    const remoteVersion = release.tag_name.replace(/^v/, "");
+    const remote = await res.json();
+    const remoteVersion = remote.version;
     const localVersion = chrome.runtime.getManifest().version;
 
     if (compareVersions(remoteVersion, localVersion) > 0) {
-      const zipAsset = release.assets.find((a) => a.name.endsWith(".zip"));
       const result = {
         available: true,
         version: remoteVersion,
         current: localVersion,
-        notes: release.body || "",
-        downloadUrl: zipAsset
-          ? zipAsset.browser_download_url
-          : release.html_url,
-        releaseUrl: release.html_url,
       };
       await chrome.storage.local.set({ _update: result });
       return result;
@@ -267,6 +268,29 @@ async function checkForUpdate() {
     console.error("[AI Detector] Update check failed:", err);
     return { available: false, error: err.message };
   }
+}
+
+async function applyUpdate() {
+  // Download all files from GitHub main branch
+  const baseUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/`;
+  const files = {};
+
+  for (const file of UPDATE_FILES) {
+    const res = await fetch(baseUrl + file, { cache: "no-store" });
+    if (!res.ok) throw new Error(`Failed to download ${file}: ${res.status}`);
+    files[file] = await res.text();
+  }
+
+  // Store the new files — the popup/content script will read these
+  await chrome.storage.local.set({
+    _update_files: files,
+    _update_ready: true,
+    _update_version: files["manifest.json"]
+      ? JSON.parse(files["manifest.json"]).version
+      : "unknown",
+  });
+
+  return { success: true, version: JSON.parse(files["manifest.json"]).version };
 }
 
 function compareVersions(a, b) {
@@ -347,6 +371,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     chrome.storage.local.get("_update", ({ _update }) => {
       sendResponse(_update || { available: false });
     });
+    return true;
+  }
+
+  if (msg.type === "applyUpdate") {
+    applyUpdate()
+      .then((result) => sendResponse(result))
+      .catch((err) => sendResponse({ error: err.message }));
     return true;
   }
 });
