@@ -207,7 +207,9 @@ async function logout() {
 
 const REPO_OWNER = "sxhorschi";
 const REPO_NAME = "linkedin-ai-zero";
-const REMOTE_MANIFEST = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/manifest.json`;
+// Use GitHub API (not raw.githubusercontent.com which caches for ~5 min)
+const MANIFEST_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/manifest.json?ref=main`;
+const RAW_BASE = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/`;
 const UPDATE_FILES = [
   "manifest.json",
   "background.js",
@@ -215,11 +217,17 @@ const UPDATE_FILES = [
   "styles.css",
   "popup.html",
   "popup.js",
+  "oauth-callback.js",
+  "update.html",
+  "update.js",
 ];
 
 async function checkForUpdate() {
   try {
-    const res = await fetch(REMOTE_MANIFEST, { cache: "no-store" });
+    const res = await fetch(MANIFEST_API, {
+      headers: { Accept: "application/vnd.github.v3.raw" },
+      cache: "no-store",
+    });
     if (!res.ok) return { available: false };
 
     const remote = await res.json();
@@ -245,12 +253,16 @@ async function checkForUpdate() {
 }
 
 async function applyUpdate() {
-  // Download all files from GitHub main branch
-  const baseUrl = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/main/`;
+  // Download all files via GitHub API (no caching)
+  const apiBase = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/`;
   const files = {};
 
   for (const file of UPDATE_FILES) {
-    const res = await fetch(baseUrl + file, { cache: "no-store" });
+    const res = await fetch(`${apiBase}${file}?ref=main`, {
+      headers: { Accept: "application/vnd.github.v3.raw" },
+      cache: "no-store",
+    });
+    if (!res.ok && res.status === 404) continue; // optional file
     if (!res.ok) throw new Error(`Failed to download ${file}: ${res.status}`);
     files[file] = await res.text();
   }
