@@ -25,12 +25,20 @@
     return textEl.innerText.trim();
   }
 
-  async function detectAI(text, apiKey) {
+  async function getToken() {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage({ type: "getToken" }, (res) => {
+        resolve(res?.token || null);
+      });
+    });
+  }
+
+  async function detectAI(text, token) {
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": apiKey,
+        Authorization: `Bearer ${token}`,
         "anthropic-version": "2023-06-01",
         "anthropic-dangerous-direct-browser-access": "true",
       },
@@ -65,7 +73,8 @@ ${text}
 
   function createButton() {
     const btn = document.createElement("button");
-    btn.className = "ai-check-btn artdeco-button artdeco-button--muted artdeco-button--tertiary";
+    btn.className =
+      "ai-check-btn artdeco-button artdeco-button--muted artdeco-button--tertiary";
     btn.type = "button";
     btn.innerHTML = `
       <span class="ai-check-btn__icon">🤖</span>
@@ -92,9 +101,9 @@ ${text}
     btn.addEventListener("click", async () => {
       const labelEl = btn.querySelector(".ai-check-btn__label");
 
-      const stored = await chrome.storage.local.get("apiKey");
-      if (!stored.apiKey) {
-        labelEl.textContent = "Set API key →";
+      const token = await getToken();
+      if (!token) {
+        labelEl.textContent = "Login first →";
         btn.classList.add("ai-check-btn--error");
         return;
       }
@@ -104,7 +113,7 @@ ${text}
       labelEl.textContent = "Checking…";
 
       try {
-        const result = await detectAI(text, stored.apiKey);
+        const result = await detectAI(text, token);
         const score = Math.round(result.score);
         labelEl.textContent = `${score}% AI`;
         btn.title = result.reason;
@@ -129,7 +138,6 @@ ${text}
     posts.forEach(injectButton);
   }
 
-  // Initial scan + MutationObserver for infinite scroll
   scanFeed();
 
   const observer = new MutationObserver(() => scanFeed());

@@ -15,53 +15,56 @@
       font-weight: 600;
       margin-bottom: 12px;
     }
-    label {
-      display: block;
+    .info {
       font-size: 12px;
-      font-weight: 600;
       color: #666;
-      margin-bottom: 4px;
-    }
-    input[type="password"] {
-      width: 100%;
-      padding: 8px 10px;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      font-size: 13px;
-      outline: none;
-    }
-    input[type="password"]:focus {
-      border-color: #0a66c2;
-      box-shadow: 0 0 0 1px #0a66c2;
+      margin-bottom: 12px;
+      line-height: 1.4;
     }
     button {
-      margin-top: 12px;
       width: 100%;
-      padding: 8px;
-      background: #0a66c2;
-      color: #fff;
+      padding: 10px;
       border: none;
       border-radius: 20px;
       font-size: 14px;
       font-weight: 600;
       cursor: pointer;
+      transition: background 0.15s;
     }
-    button:hover { background: #004182; }
+    #login {
+      background: #0a66c2;
+      color: #fff;
+    }
+    #login:hover { background: #004182; }
+    #logout {
+      background: #f0f0f0;
+      color: #333;
+    }
+    #logout:hover { background: #e0e0e0; }
     .status {
-      margin-top: 8px;
+      margin-top: 10px;
       font-size: 12px;
       text-align: center;
       min-height: 16px;
     }
     .status--ok { color: #388e3c; }
     .status--err { color: #d32f2f; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <h1>🤖 LinkedIn AI Detector</h1>
-  <label for="apiKey">Anthropic API Key</label>
-  <input type="password" id="apiKey" placeholder="sk-ant-..." />
-  <button id="save">Save Key</button>
+
+  <div id="logged-out">
+    <p class="info">Sign in with your Claude account (Pro/Max subscription) to detect AI-generated LinkedIn posts.</p>
+    <button id="login">Sign in with Claude</button>
+  </div>
+
+  <div id="logged-in" class="hidden">
+    <p class="info">You're signed in. Click "Check AI" on any LinkedIn post to analyze it.</p>
+    <button id="logout">Sign out</button>
+  </div>
+
   <div class="status" id="status"></div>
   <script src="popup.js"></script>
 </body>
