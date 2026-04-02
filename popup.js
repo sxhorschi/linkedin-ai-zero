@@ -4,18 +4,21 @@ const loggedOutEl = document.getElementById("logged-out");
 const loggedInEl = document.getElementById("logged-in");
 const statusEl = document.getElementById("status");
 
+function setStatus(text, type) {
+  statusEl.textContent = text;
+  statusEl.className = `status${type ? ` status--${type}` : ""}`;
+}
+
 function showLoggedIn() {
   loggedOutEl.classList.add("hidden");
   loggedInEl.classList.remove("hidden");
-  statusEl.textContent = "Connected ✓";
-  statusEl.className = "status status--ok";
+  setStatus("Connected", "ok");
 }
 
 function showLoggedOut() {
   loggedInEl.classList.add("hidden");
   loggedOutEl.classList.remove("hidden");
-  statusEl.textContent = "";
-  statusEl.className = "status";
+  setStatus("", "");
 }
 
 // Check current auth status
@@ -25,15 +28,13 @@ chrome.runtime.sendMessage({ type: "getAuthStatus" }, (res) => {
 });
 
 loginBtn.addEventListener("click", () => {
-  statusEl.textContent = "Signing in…";
-  statusEl.className = "status";
+  setStatus("Opening login…", "loading");
   loginBtn.disabled = true;
 
   chrome.runtime.sendMessage({ type: "login" }, (res) => {
     loginBtn.disabled = false;
     if (res?.error) {
-      statusEl.textContent = res.error;
-      statusEl.className = "status status--err";
+      setStatus(res.error, "err");
     } else {
       showLoggedIn();
     }

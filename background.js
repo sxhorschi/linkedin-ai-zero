@@ -6,12 +6,6 @@ const SCOPES = "user:inference user:profile";
 
 // --- PKCE helpers ---
 
-function generateRandomBytes(length) {
-  const array = new Uint8Array(length);
-  crypto.getRandomValues(array);
-  return array;
-}
-
 function base64UrlEncode(buffer) {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   let binary = "";
@@ -21,23 +15,21 @@ function base64UrlEncode(buffer) {
 
 async function sha256(plain) {
   const encoder = new TextEncoder();
-  const data = encoder.encode(plain);
-  return crypto.subtle.digest("SHA-256", data);
+  return crypto.subtle.digest("SHA-256", encoder.encode(plain));
 }
 
 async function generatePKCE() {
-  const verifier = base64UrlEncode(generateRandomBytes(32));
-  const challengeBuffer = await sha256(verifier);
-  const challenge = base64UrlEncode(challengeBuffer);
+  const verifier = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)));
+  const challenge = base64UrlEncode(await sha256(verifier));
   return { verifier, challenge };
 }
 
-// --- OAuth flow ---
+// --- OAuth flow via chrome.tabs ---
+
+let pendingLogin = null;
 
 async function startLogin() {
   const { verifier, challenge } = await generatePKCE();
-
-  // Store verifier for token exchange
   await chrome.storage.local.set({ _pkce_verifier: verifier });
 
   const params = new URLSearchParams({
@@ -53,51 +45,79 @@ async function startLogin() {
 
   const authUrl = `${AUTH_URL}?${params.toString()}`;
 
-  // Use chrome.identity to launch the auth flow
-  // It will intercept the redirect back to console.anthropic.com
   return new Promise((resolve, reject) => {
-    chrome.identity.launchWebAuthFlow(
-      { url: authUrl, interactive: true },
-      async (redirectUrl) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-          return;
-        }
-        try {
-          const result = await handleCallback(redirectUrl);
-          resolve(result);
-        } catch (err) {
-          reject(err);
-        }
+    // Store the pending login so the tab listener can resolve it
+    pendingLogin = { resolve, reject };
+
+    chrome.tabs.create({ url: authUrl }, (tab) => {
+      if (chrome.runtime.lastError) {
+        pendingLogin = null;
+        reject(new Error(chrome.runtime.lastError.message));
+      } else {
+        pendingLogin.tabId = tab.id;
       }
-    );
+    });
   });
 }
 
-async function handleCallback(redirectUrl) {
-  const url = new URL(redirectUrl);
-  // Anthropic returns code in the URL — may be in hash or query
-  let code = url.searchParams.get("code");
+// Watch for the OAuth callback redirect
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!pendingLogin || tabId !== pendingLogin.tabId) return;
+  if (!changeInfo.url) return;
+
+  const url = changeInfo.url;
+  if (!url.startsWith(REDIRECT_URI)) return;
+
+  // Got the callback — extract code and close tab
+  chrome.tabs.remove(tabId);
+
+  const parsed = new URL(url);
+  let code = parsed.searchParams.get("code");
+
   if (!code) {
-    // Sometimes returned as fragment: code#state
-    const hash = url.hash.substring(1);
-    const hashParams = new URLSearchParams(hash);
-    code = hashParams.get("code");
+    // Check hash fragment: code#state format
+    const hash = parsed.hash.substring(1);
+    if (hash && !hash.includes("=")) {
+      code = hash.split("#")[0];
+    } else {
+      const hashParams = new URLSearchParams(hash);
+      code = hashParams.get("code");
+    }
   }
+
   if (!code) {
-    throw new Error("No authorization code received");
+    pendingLogin.reject(new Error("No authorization code received"));
+    pendingLogin = null;
+    return;
   }
 
-  // Code might contain #state suffix
-  if (code.includes("#")) {
-    code = code.split("#")[0];
+  // Strip #state suffix if present
+  if (code.includes("#")) code = code.split("#")[0];
+
+  const login = pendingLogin;
+  pendingLogin = null;
+
+  (async () => {
+    try {
+      const { _pkce_verifier: verifier } = await chrome.storage.local.get("_pkce_verifier");
+      if (!verifier) throw new Error("PKCE verifier not found");
+      const result = await exchangeCode(code, verifier);
+      login.resolve(result);
+    } catch (err) {
+      login.reject(err);
+    }
+  })();
+});
+
+// If user closes the auth tab manually, reject the login
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (pendingLogin && pendingLogin.tabId === tabId) {
+    pendingLogin.reject(new Error("Login cancelled"));
+    pendingLogin = null;
   }
+});
 
-  const { _pkce_verifier: verifier } = await chrome.storage.local.get("_pkce_verifier");
-  if (!verifier) throw new Error("PKCE verifier not found");
-
-  return exchangeCode(code, verifier);
-}
+// --- Token exchange ---
 
 async function exchangeCode(code, verifier) {
   const response = await fetch(TOKEN_URL, {
@@ -126,17 +146,17 @@ async function exchangeCode(code, verifier) {
     oauth_expires_at: expiresAt,
   });
 
-  // Clean up PKCE verifier
   await chrome.storage.local.remove("_pkce_verifier");
-
-  // Schedule refresh
   scheduleRefresh(tokens.expires_in || 3600);
 
   return { success: true };
 }
 
+// --- Token refresh ---
+
 async function refreshToken() {
-  const { oauth_refresh_token: refreshTok } = await chrome.storage.local.get("oauth_refresh_token");
+  const { oauth_refresh_token: refreshTok } =
+    await chrome.storage.local.get("oauth_refresh_token");
   if (!refreshTok) throw new Error("No refresh token");
 
   const response = await fetch(TOKEN_URL, {
@@ -150,14 +170,12 @@ async function refreshToken() {
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    // If refresh fails, clear tokens so user re-logs
     await chrome.storage.local.remove([
       "oauth_access_token",
       "oauth_refresh_token",
       "oauth_expires_at",
     ]);
-    throw new Error(`Token refresh failed (${response.status}): ${text}`);
+    throw new Error(`Token refresh failed: ${response.status}`);
   }
 
   const tokens = await response.json();
@@ -173,12 +191,11 @@ async function refreshToken() {
 }
 
 function scheduleRefresh(expiresInSeconds) {
-  // Refresh 5 minutes before expiry
-  const delayMs = Math.max((expiresInSeconds - 300) * 1000, 60000);
-  chrome.alarms.create("oauth_refresh", { delayInMinutes: delayMs / 60000 });
+  const delayMin = Math.max((expiresInSeconds - 300) / 60, 1);
+  chrome.alarms.create("oauth_refresh", { delayInMinutes: delayMin });
 }
 
-// --- Get valid access token (auto-refresh if needed) ---
+// --- Get valid access token ---
 
 async function getAccessToken() {
   const stored = await chrome.storage.local.get([
@@ -189,7 +206,6 @@ async function getAccessToken() {
 
   if (!stored.oauth_access_token) return null;
 
-  // If token expires within 2 minutes, refresh
   if (stored.oauth_expires_at && Date.now() > stored.oauth_expires_at - 120000) {
     try {
       await refreshToken();
@@ -213,7 +229,7 @@ async function logout() {
   chrome.alarms.clear("oauth_refresh");
 }
 
-// --- Alarm listener for token refresh ---
+// --- Listeners ---
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "oauth_refresh") {
@@ -223,8 +239,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-// --- On startup, schedule refresh if we have tokens ---
-
 chrome.runtime.onStartup.addListener(async () => {
   const { oauth_expires_at } = await chrome.storage.local.get("oauth_expires_at");
   if (oauth_expires_at) {
@@ -233,14 +247,12 @@ chrome.runtime.onStartup.addListener(async () => {
   }
 });
 
-// --- Message handler for popup + content script ---
-
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === "login") {
     startLogin()
       .then((result) => sendResponse(result))
       .catch((err) => sendResponse({ error: err.message }));
-    return true; // async
+    return true;
   }
 
   if (msg.type === "logout") {
